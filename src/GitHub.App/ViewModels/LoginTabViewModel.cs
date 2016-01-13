@@ -26,11 +26,11 @@ namespace GitHub.ViewModels
             RepositoryHosts = repositoryHosts;
 
             UsernameOrEmailValidator = ReactivePropertyValidator.For(this, x => x.UsernameOrEmail)
-                .IfNullOrEmpty("Please enter your username or email address")
-                .IfMatch(@"\s", "Username or email address must not have spaces");
+                .IfNullOrEmpty(Resources.UsernameOrEmailValidatorEmpty)
+                .IfMatch(@"\s", Resources.UsernameOrEmailValidatorSpaces);
 
             PasswordValidator = ReactivePropertyValidator.For(this, x => x.Password)
-                .IfNullOrEmpty("Please enter your password");
+                .IfNullOrEmpty(Resources.PasswordValidatorEmpty);
 
             canLogin = this.WhenAny(
                 x => x.UsernameOrEmailValidator.ValidationResult.IsValid,
@@ -41,9 +41,16 @@ namespace GitHub.ViewModels
 
             Login.ThrownExceptions.Subscribe(ex =>
             {
-                if (!ex.IsCriticalException())
+                if (ex.IsCriticalException()) return;
+
+                log.Info(string.Format(CultureInfo.InvariantCulture, "Error logging into '{0}' as '{1}'", BaseUri, UsernameOrEmail), ex);
+                if (ex is Octokit.ForbiddenException)
                 {
-                    log.Info(string.Format(CultureInfo.InvariantCulture, "Error logging into '{0}' as '{1}'", BaseUri, UsernameOrEmail), ex);
+                    ShowLogInFailedError = true;
+                    LoginFailedMessage = Resources.LoginFailedForbiddenMessage;
+                }
+                else
+                {
                     ShowConnectingToHostFailed = true;
                 }
             });
@@ -64,13 +71,20 @@ namespace GitHub.ViewModels
                 return Observable.Return(Unit.Default);
             });
         }
-        protected IRepositoryHosts RepositoryHosts { get; private set; }
+        protected IRepositoryHosts RepositoryHosts { get; }
         protected abstract Uri BaseUri { get; }
-        public IReactiveCommand<Unit> SignUp { get; private set; }
+        public IReactiveCommand<Unit> SignUp { get; }
 
-        public IReactiveCommand<AuthenticationResult> Login { get; private set; }
-        public IReactiveCommand<Unit> Reset { get; private set; }
-        public IReactiveCommand<Unit> NavigateForgotPassword { get; private set; }
+        public IReactiveCommand<AuthenticationResult> Login { get; }
+        public IReactiveCommand<Unit> Reset { get; }
+        public IReactiveCommand<Unit> NavigateForgotPassword { get; }
+
+        string loginFailedMessage = Resources.LoginFailedMessage;
+        public string LoginFailedMessage
+        {
+            get { return loginFailedMessage; }
+            set { this.RaiseAndSetIfChanged(ref loginFailedMessage, value); }
+        }
 
         string usernameOrEmail;
         [AllowNull]

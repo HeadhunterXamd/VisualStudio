@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using GitHub.Primitives;
 using GitHub.Services;
 using Octokit;
+using GitHub.Extensions;
 
 namespace GitHub.Api
 {
@@ -13,7 +14,7 @@ namespace GitHub.Api
         public HostAddress HostAddress { get; }
         public UriString OriginalUrl { get; }
 
-        readonly GitHubClient client;
+        readonly IGitHubClient client;
         readonly Lazy<IEnterpriseProbeTask> enterpriseProbe;
         readonly Lazy<IWikiProbe> wikiProbe;
         static readonly SemaphoreSlim sem = new SemaphoreSlim(1);
@@ -23,10 +24,13 @@ namespace GitHub.Api
         bool? isEnterprise;
         bool? hasWiki;
 
-        internal SimpleApiClient(HostAddress hostAddress, UriString repoUrl, GitHubClient githubClient,
+        public SimpleApiClient(UriString repoUrl, IGitHubClient githubClient,
             Lazy<IEnterpriseProbeTask> enterpriseProbe, Lazy<IWikiProbe> wikiProbe)
         {
-            HostAddress = hostAddress;
+            Guard.ArgumentNotNull(repoUrl, nameof(repoUrl));
+            Guard.ArgumentNotNull(githubClient, nameof(githubClient));
+
+            HostAddress = HostAddress.Create(repoUrl);
             OriginalUrl = repoUrl;
             client = githubClient;
             this.enterpriseProbe = enterpriseProbe;
@@ -48,7 +52,7 @@ namespace GitHub.Api
             await sem.WaitAsync();
             try
             {
-                if (owner == null && OriginalUrl != null)
+                if (owner == null)
                 {
                     var ownerLogin = OriginalUrl.Owner;
                     var repositoryName = OriginalUrl.RepositoryName;
@@ -66,7 +70,12 @@ namespace GitHub.Api
                     }
                 }
             }
-            // it'll throw if it's private
+            // it'll throw if it's private or an enterprise instance requiring authentication
+            catch (ApiException apiex)
+            {
+                if (!HostAddress.IsGitHubDotComUri(OriginalUrl.ToRepositoryUrl()))
+                    isEnterprise = apiex.IsGitHubApiException();
+            }
             catch {}
             finally
             {
@@ -78,16 +87,12 @@ namespace GitHub.Api
 
         public bool HasWiki()
         {
-            if (hasWiki.HasValue)
-                return hasWiki.Value;
-            return false;
+            return hasWiki.HasValue && hasWiki.Value;
         }
 
         public bool IsEnterprise()
         {
-            if (isEnterprise.HasValue)
-                return isEnterprise.Value;
-            return false;
+            return isEnterprise.HasValue && isEnterprise.Value;
         }
 
         async Task<bool> HasWikiInternal(Repository repo)
@@ -108,8 +113,6 @@ namespace GitHub.Api
                 return false;
 #endif
             var ret = await probe.ProbeAsync(repo);
-            if (ret == WikiProbeResult.Failed)
-                return false;
             return (ret == WikiProbeResult.Ok);
         }
 
@@ -122,8 +125,6 @@ namespace GitHub.Api
                 return false;
 #endif
             var ret = await probe.ProbeAsync(HostAddress.WebUri);
-            if (ret == EnterpriseProbeResult.Failed)
-                return false;
             return (ret == EnterpriseProbeResult.Ok);
         }
     }

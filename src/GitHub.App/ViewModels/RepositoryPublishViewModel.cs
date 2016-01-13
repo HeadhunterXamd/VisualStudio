@@ -47,8 +47,8 @@ namespace GitHub.ViewModels
             title = this.WhenAny(
                 x => x.SelectedHost,
                 x => x.Value != null ?
-                    string.Format(CultureInfo.CurrentCulture, "Publish repository to {0}", x.Value.Title) :
-                    "Publish repository"
+                    string.Format(CultureInfo.CurrentCulture, Resources.PublishToTitle, x.Value.Title) :
+                    Resources.PublishTitle
             )
             .ToProperty(this, x => x.Title);
 
@@ -117,7 +117,7 @@ namespace GitHub.ViewModels
         public bool CanKeepPrivate { get { return canKeepPrivate.Value; } }
         public bool IsPublishing { get { return isPublishing.Value; } }
 
-        public IReactiveCommand<Unit> PublishRepository { get; private set; }
+        public IReactiveCommand<ProgressState> PublishRepository { get; private set; }
         public ReactiveList<IConnection> Connections { get; private set; }
 
         IConnection selectedConnection;
@@ -145,21 +145,24 @@ namespace GitHub.ViewModels
             get { return isHostComboBoxVisible.Value; }
         }
 
-        ReactiveCommand<Unit> InitializePublishRepositoryCommand()
+        ReactiveCommand<ProgressState> InitializePublishRepositoryCommand()
         {
             var canCreate = this.WhenAny(x => x.RepositoryNameValidator.ValidationResult.IsValid, x => x.Value);
             return ReactiveCommand.CreateAsyncObservable(canCreate, OnPublishRepository);
         }
 
-        private IObservable<Unit> OnPublishRepository(object arg)
+        IObservable<ProgressState> OnPublishRepository(object arg)
         {
             var newRepository = GatherRepositoryInfo();
             var account = SelectedAccount;
 
             return repositoryPublishService.PublishRepository(newRepository, account, SelectedHost.ApiClient)
-                .SelectUnit()
-                .Do(_ => vsServices.ShowMessage("Repository published successfully."))
-                .Catch<Unit, Exception>(ex =>
+                .Select(_ =>
+                {
+                    vsServices.ShowMessage("Repository published successfully.");
+                    return ProgressState.Success;
+                })
+                .Catch<ProgressState, Exception>(ex =>
                 {
                     if (!ex.IsCriticalException())
                     {
@@ -167,7 +170,7 @@ namespace GitHub.ViewModels
                         var error = new PublishRepositoryUserError(ex.Message);
                         vsServices.ShowError((error.ErrorMessage + Environment.NewLine + error.ErrorCauseOrResolution).TrimEnd());
                     }
-                    return Observable.Return(Unit.Default);
+                    return Observable.Return(ProgressState.Fail);
                 });
         }
 
@@ -179,19 +182,19 @@ namespace GitHub.ViewModels
                 .WhereNotNull();
 
             RepositoryNameValidator = ReactivePropertyValidator.ForObservable(nonNullRepositoryName)
-                .IfNullOrEmpty("Please enter a repository name")
-                .IfTrue(x => x.Length > 100, "Repository name must be fewer than 100 characters");
+                .IfNullOrEmpty(Resources.RepositoryNameValidatorEmpty)
+                .IfTrue(x => x.Length > 100, Resources.RepositoryNameValidatorTooLong);
 
             SafeRepositoryNameWarningValidator = ReactivePropertyValidator.ForObservable(nonNullRepositoryName)
                 .Add(repoName =>
                 {
                     var parsedReference = GetSafeRepositoryName(repoName);
-                    return parsedReference != repoName ? "Will be created as " + parsedReference : null;
+                    return parsedReference != repoName ? String.Format(CultureInfo.CurrentCulture, Resources.SafeRepositoryNameWarning, parsedReference) : null;
                 });
 
             this.WhenAny(x => x.SafeRepositoryNameWarningValidator.ValidationResult, x => x.Value)
                 .WhereNotNull() // When this is instantiated, it sends a null result.
-                .Select(result => result == null ? null : result.Message)
+                .Select(result => result?.Message)
                 .Subscribe(message =>
                 {
                     if (!string.IsNullOrEmpty(message))

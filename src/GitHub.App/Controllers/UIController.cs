@@ -1,9 +1,11 @@
 ﻿using System;
 using System.ComponentModel.Composition;
 using System.Diagnostics;
+using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Windows;
 using System.Windows.Controls;
 using GitHub.Authentication;
 using GitHub.Exports;
@@ -15,8 +17,7 @@ using GitHub.ViewModels;
 using NullGuard;
 using ReactiveUI;
 using Stateless;
-using System.Windows;
-using System.Reactive.Concurrency;
+using System.Collections.Specialized;
 
 namespace GitHub.Controllers
 {
@@ -35,7 +36,9 @@ namespace GitHub.Controllers
         readonly CompositeDisposable disposables = new CompositeDisposable();
         readonly StateMachine<UIViewType, Trigger> machine;
         Subject<UserControl> transition;
+        Subject<bool> completion;
         UIControllerFlow currentFlow;
+        NotifyCollectionChangedEventHandler connectionAdded;
 
         [ImportingConstructor]
         public UIController(IUIProvider uiProvider, IRepositoryHosts hosts, IExportFactoryProvider factory,
@@ -116,17 +119,10 @@ namespace GitHub.Controllers
                 .Permit(Trigger.Next, UIViewType.End);
 
             machine.Configure(UIViewType.End)
-                .OnEntry(() =>
-                {
-                    uiProvider.RemoveService(typeof(IConnection));
-                    transition.OnCompleted();
-                })
+                .OnEntryFrom(Trigger.Cancel, () => End(false))
+                .OnEntryFrom(Trigger.Next, () => End(true))
                 .Permit(Trigger.Next, UIViewType.Finished);
 
-            // it might be useful later to check which triggered
-            // made us enter here (Cancel or Next) and set a final
-            // result accordingly, which is why UIViewType.End only
-            // allows a Next trigger
             machine.Configure(UIViewType.Finished);
         }
 
@@ -138,6 +134,27 @@ namespace GitHub.Controllers
             transition.Subscribe(_ => { }, _ => Fire(Trigger.Next));
         
             return transition;
+        }
+
+        /// <summary>
+        /// Allows listening to the completion state of the ui flow - whether
+        /// it was completed because it was cancelled or whether it succeeded.
+        /// </summary>
+        /// <returns>true for success, false for cancel</returns>
+        public IObservable<bool> ListenToCompletionState()
+        {
+            if (completion == null)
+                completion = new Subject<bool>();
+            return completion;
+        }
+
+        void End(bool success)
+        {
+            uiProvider.RemoveService(typeof(IConnection));
+            transition.OnCompleted();
+            completion?.OnNext(success);
+            completion?.OnCompleted();
+            completion = null;
         }
 
         void RunView(UIViewType viewType)
@@ -158,22 +175,22 @@ namespace GitHub.Controllers
                 var dvm = factory.GetViewModel(UIViewType.TwoFactor);
                 disposables.Add(dvm);
                 var twofa = dvm.Value;
-                twofa.WhenAny(x => x.IsShowing, x => x.Value)
+                disposables.Add(twofa.WhenAny(x => x.IsShowing, x => x.Value)
                     .Where(x => x)
                     .ObserveOn(RxApp.MainThreadScheduler)
-                    .Subscribe(_ => Fire(Trigger.Next));
+                    .Subscribe(_ => Fire(Trigger.Next)));
 
-                view.Done
+                disposables.Add(view.Done
                     .ObserveOn(RxApp.MainThreadScheduler)
-                    .Subscribe(_ => Fire(Trigger.Finish));
+                    .Subscribe(_ => Fire(Trigger.Finish)));
             }
             else if (viewType != UIViewType.TwoFactor)
             {
-                view.Done
+                disposables.Add(view.Done
                     .ObserveOn(RxApp.MainThreadScheduler)
-                    .Subscribe(_ => Fire(Trigger.Next));
+                    .Subscribe(_ => Fire(Trigger.Next)));
             }
-            view.Cancel.Subscribe(_ => Stop());
+            disposables.Add(view.Cancel.Subscribe(_ => Stop()));
         }
 
         IView CreateViewAndViewModel(UIViewType viewType)
@@ -236,6 +253,15 @@ namespace GitHub.Controllers
                     .IsLoggedIn(hosts)
                     .Do(loggedin =>
                     {
+                        if (!loggedin && currentFlow != UIControllerFlow.Authentication)
+                        {
+                            connectionAdded = (s, e) => {
+                                if (e.Action == NotifyCollectionChangedAction.Add)
+                                    uiProvider.AddService(typeof(IConnection), e.NewItems[0]);
+                            };
+                            connectionManager.Connections.CollectionChanged += connectionAdded;
+                        }
+
                         machine.Configure(UIViewType.None)
                             .Permit(Trigger.Auth, UIViewType.Login)
                             .PermitIf(Trigger.Create, UIViewType.Create, () => loggedin)
@@ -257,10 +283,7 @@ namespace GitHub.Controllers
         public void Stop()
         {
             Debug.WriteLine("Stop ({0})", GetHashCode());
-            if (machine.IsInState(UIViewType.End))
-                Fire(Trigger.Next);
-            else
-                Fire(Trigger.Cancel);
+            Fire(machine.IsInState(UIViewType.End) ? Trigger.Next : Trigger.Cancel);
         }
 
         bool disposed; // To detect redundant calls
@@ -272,8 +295,11 @@ namespace GitHub.Controllers
 
                 Debug.WriteLine("Disposing ({0})", GetHashCode());
                 disposables.Dispose();
-                if (transition != null)
-                    transition.Dispose();
+                transition?.Dispose();
+                completion?.Dispose();
+                if (connectionAdded != null)
+                    connectionManager.Connections.CollectionChanged -= connectionAdded;
+                connectionAdded = null;
                 disposed = true;
             }
         }
@@ -284,6 +310,6 @@ namespace GitHub.Controllers
             GC.SuppressFinalize(this);
         }
 
-        public bool IsStopped { get { return machine.IsInState(UIViewType.Finished); } }
+        public bool IsStopped => machine.IsInState(UIViewType.Finished);
     }
 }

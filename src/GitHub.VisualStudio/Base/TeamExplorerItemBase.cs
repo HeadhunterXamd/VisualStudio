@@ -7,10 +7,11 @@ using GitHub.Services;
 using GitHub.VisualStudio.Helpers;
 using NullGuard;
 using Octokit;
+using GitHub.Extensions;
 
 namespace GitHub.VisualStudio.Base
 {
-    public class TeamExplorerItemBase : TeamExplorerGitRepoInfo, INotifyPropertySource
+    public class TeamExplorerItemBase : TeamExplorerGitRepoInfo
     {
         readonly ISimpleApiClientFactory apiFactory;
         protected ITeamExplorerServiceHolder holder;
@@ -26,6 +27,13 @@ namespace GitHub.VisualStudio.Base
                     apiFactory.ClearFromCache(simpleApiClient);
                 simpleApiClient = value;
             }
+        }
+
+        protected ISimpleApiClientFactory ApiFactory => apiFactory;
+
+        public TeamExplorerItemBase(ITeamExplorerServiceHolder holder)
+        {
+            this.holder = holder;
         }
 
         public TeamExplorerItemBase(ISimpleApiClientFactory apiFactory, ITeamExplorerServiceHolder holder)
@@ -47,9 +55,8 @@ namespace GitHub.VisualStudio.Base
             var repo = ActiveRepo;
             if (repo != null)
             {
-                var uri = repo.GetUriFromRepository();
-                var name = uri?.RepositoryName;
-                if (name != null)
+                var uri = repo.CloneUrl;
+                if (uri?.RepositoryName != null)
                 {
                     ActiveRepoUri = uri;
                     ActiveRepoName = uri.NameWithOwner;
@@ -65,12 +72,13 @@ namespace GitHub.VisualStudio.Base
 
             SimpleApiClient = apiFactory.Create(uri);
 
-            if (!HostAddress.IsGitHubDotComUri(uri.ToRepositoryUrl()))
+            var isdotcom = HostAddress.IsGitHubDotComUri(uri.ToRepositoryUrl());
+            if (!isdotcom)
             {
                 var repo = await SimpleApiClient.GetRepository();
-                return repo.FullName == ActiveRepoName && SimpleApiClient.IsEnterprise();
+                return (repo.FullName == ActiveRepoName || repo.Id == 0) && SimpleApiClient.IsEnterprise();
             }
-            return true;
+            return isdotcom;
         }
 
         bool isEnabled;

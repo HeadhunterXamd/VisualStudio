@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Linq;
 using System.Reactive.Linq;
 using System.Windows;
 using System.Windows.Input;
@@ -8,16 +7,20 @@ using GitHub.Exports;
 using GitHub.Extensions;
 using GitHub.UI;
 using GitHub.ViewModels;
-using NullGuard;
 using ReactiveUI;
+using System.ComponentModel.Composition;
 
 namespace GitHub.VisualStudio.UI.Views.Controls
 {
+    public class GenericLoginControl : SimpleViewUserControl<ILoginControlViewModel, LoginControl>
+    { }
+
     /// <summary>
     /// Interaction logic for LoginControl.xaml
     /// </summary>
     [ExportView(ViewType=UIViewType.Login)]
-    public partial class LoginControl : SimpleViewUserControl, IViewFor<ILoginControlViewModel>, IView
+    [PartCreationPolicy(CreationPolicy.NonShared)]
+    public partial class LoginControl : GenericLoginControl
     {
         public LoginControl()
         {
@@ -63,6 +66,7 @@ namespace GitHub.VisualStudio.UI.Views.Controls
             d(this.OneWayBind(ViewModel, vm => vm.GitHubLogin.NavigatePricing, v => v.pricingLink.Command));
 
             d(this.OneWayBind(ViewModel, vm => vm.GitHubLogin.ShowLogInFailedError, v => v.dotComLoginFailedMessage.Visibility));
+            d(this.OneWayBind(ViewModel, vm => vm.GitHubLogin.LoginFailedMessage, v => v.dotComLoginFailedMessage.Message));
             d(this.OneWayBind(ViewModel, vm => vm.GitHubLogin.ShowConnectingToHostFailed, v => v.dotComConnectionFailedMessage.Visibility));
         }
 
@@ -86,6 +90,7 @@ namespace GitHub.VisualStudio.UI.Views.Controls
             d(this.OneWayBind(ViewModel, vm => vm.EnterpriseLogin.NavigateLearnMore, v => v.learnMoreLink.Command));
 
             d(this.OneWayBind(ViewModel, vm => vm.EnterpriseLogin.ShowLogInFailedError, v => v.enterpriseLoginFailedMessage.Visibility));
+            d(this.OneWayBind(ViewModel, vm => vm.EnterpriseLogin.LoginFailedMessage, v => v.enterpriseLoginFailedMessage.Message));
             d(this.OneWayBind(ViewModel, vm => vm.EnterpriseLogin.ShowConnectingToHostFailed, v => v.enterpriseConnectingFailedMessage.Visibility));
         }
 
@@ -108,28 +113,6 @@ namespace GitHub.VisualStudio.UI.Views.Controls
                 .Select(x => x == LoginMode.EnterpriseOnly)
                 .Where(x => x == true)
                 .BindTo(this, v => v.enterpriseTab.IsSelected));
-        }
-
-        public static readonly DependencyProperty ViewModelProperty = DependencyProperty.Register(
-            "ViewModel", typeof(ILoginControlViewModel), typeof(LoginControl), new PropertyMetadata(null));
-
-        object IViewFor.ViewModel
-        {
-            get { return ViewModel; }
-            set { ViewModel = (ILoginControlViewModel)value; }
-        }
-
-        object IView.ViewModel
-        {
-            get { return ViewModel; }
-            set { ViewModel = (ILoginControlViewModel)value; }
-        }
-
-        public ILoginControlViewModel ViewModel
-        {
-            [return: AllowNull]
-            get { return (ILoginControlViewModel)GetValue(ViewModelProperty); }
-            set { SetValue(ViewModelProperty, value); }
         }
     }
 }
