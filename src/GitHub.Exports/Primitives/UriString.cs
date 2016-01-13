@@ -56,6 +56,13 @@ namespace GitHub.Primitives
             return uri == null ? null : new UriString(uri.ToString());
         }
 
+        public Uri ToUri()
+        {
+            if (url == null)
+                throw new InvalidOperationException("This Uri String is not a valid Uri");
+            return url;
+        }
+
         void SetUri(Uri uri)
         {
             Host = uri.Host;
@@ -101,6 +108,7 @@ namespace GitHub.Primitives
                 Host = match.Groups["host"].Value.ToNullIfEmpty();
                 Owner = match.Groups["owner"].Value.ToNullIfEmpty();
                 RepositoryName = GetRepositoryName(match.Groups["repo"].Value);
+                IsScpUri = true;
                 return true;
             }
             return false;
@@ -116,15 +124,18 @@ namespace GitHub.Primitives
 
         public bool IsFileUri { get; private set; }
 
+        public bool IsScpUri { get; private set; }
+
         public bool IsValidUri => url != null;
 
         /// <summary>
         /// Attempts a best-effort to convert the remote origin to a GitHub Repository URL.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>A converted uri, or the existing one if we can't convert it (which might be null)</returns>
         public Uri ToRepositoryUrl()
         {
-            if (url != null && IsFileUri) return url;
+            // we only want to process urls that represent network resources
+            if (!IsScpUri && (!IsValidUri || IsFileUri)) return url;
 
             var scheme = url != null && IsHypertextTransferProtocol
                 ? url.Scheme
@@ -166,7 +177,7 @@ namespace GitHub.Primitives
             if (url != null)
             {
                 var urlBuilder = new UriBuilder(url);
-                if (!string.IsNullOrEmpty(urlBuilder.Query))
+                if (!String.IsNullOrEmpty(urlBuilder.Query))
                 {
                     var query = urlBuilder.Query;
                     if (query.StartsWith("?", StringComparison.Ordinal))
@@ -190,7 +201,7 @@ namespace GitHub.Primitives
                 }
                 return ToUriString(urlBuilder.Uri);
             }
-            return string.Concat(Value, addition);
+            return String.Concat(Value, addition);
         }
 
         public override string ToString()
@@ -227,7 +238,7 @@ namespace GitHub.Primitives
 
         static string GetRepositoryName(string repositoryNameSegment)
         {
-            if (string.IsNullOrEmpty(repositoryNameSegment) 
+            if (String.IsNullOrEmpty(repositoryNameSegment) 
                 || repositoryNameSegment.Equals("/", StringComparison.Ordinal))
             {
                 return null;

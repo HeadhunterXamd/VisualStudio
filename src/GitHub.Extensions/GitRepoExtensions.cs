@@ -1,10 +1,6 @@
 ﻿using Microsoft.VisualStudio.TeamFoundation.Git.Extensibility;
 using NullGuard;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace GitHub.Extensions
 {
@@ -15,7 +11,7 @@ namespace GitHub.Extensions
             if (lhs == null && rhs == null)
                 return true;
             if (lhs != null && rhs != null)
-                return lhs.RepositoryPath == rhs.RepositoryPath;
+                return String.Equals(lhs.RepositoryPath, rhs.RepositoryPath, StringComparison.CurrentCultureIgnoreCase);
             return false;
         }
     }

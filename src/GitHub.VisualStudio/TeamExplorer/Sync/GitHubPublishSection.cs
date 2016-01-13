@@ -36,10 +36,10 @@ namespace GitHub.VisualStudio.TeamExplorer.Sync
 
             lazyBrowser = browser;
             this.hosts = hosts;
-            Title = "Publish to GitHub";
+            Title = Resources.GitHubPublishSectionTitle;
             Name = "GitHub";
             Provider = "GitHub, Inc";
-            Description = "Powerful collaboration, code review, and code management for open source and private projects.";
+            Description = Resources.BlurbText;
             ShowLogin = false;
             ShowSignup = false;
             ShowGetStarted = false;
@@ -50,13 +50,13 @@ namespace GitHub.VisualStudio.TeamExplorer.Sync
             view.DataContext = this;
         }
 
-        async void RTMSetup()
+        async void Setup()
         {
             if (ActiveRepo != null && ActiveRepoUri == null)
             {
                 IsVisible = true;
-                loggedIn = await connectionManager.IsLoggedIn(hosts);
                 ShowGetStarted = true;
+                loggedIn = await connectionManager.IsLoggedIn(hosts);
                 ShowLogin = !loggedIn;
                 ShowSignup = !loggedIn;
             }
@@ -64,34 +64,16 @@ namespace GitHub.VisualStudio.TeamExplorer.Sync
                 IsVisible = false;
         }
 
-        async void PreRTMSetup()
+        public override void Initialize(IServiceProvider serviceProvider)
         {
-            if (ActiveRepo != null && ActiveRepoUri == null)
-            {
-                IsVisible = true;
-                loggedIn = await connectionManager.IsLoggedIn(hosts);
-                if (loggedIn)
-                    ShowPublish();
-                else
-                {
-                    ShowGetStarted = true;
-                    ShowSignup = true;
-                }
-            }
-            else
-                IsVisible = false;
-        }
-
-        public override void Initialize(object sender, SectionInitializeEventArgs e)
-        {
-            base.Initialize(sender, e);
-            RTMSetup();
+            base.Initialize(serviceProvider);
+            Setup();
         }
 
         protected override void RepoChanged()
         {
             base.RepoChanged();
-            RTMSetup();
+            Setup();
         }
 
         public async void Connect()
@@ -135,7 +117,13 @@ namespace GitHub.VisualStudio.TeamExplorer.Sync
             disposable = uiflow;
             var ui = uiflow.Value;
             var creation = ui.SelectFlow(UIControllerFlow.Publish);
-            creation.Subscribe((c) =>
+            ui.ListenToCompletionState().Subscribe(done =>
+            {
+                IsVisible = false;
+                ServiceProvider.TryGetService<ITeamExplorer>()?.NavigateToPage(new Guid(TeamExplorerPageIds.Home), null);
+            });
+
+            creation.Subscribe(c =>
             {
                 SectionContent = c;
                 c.DataContext = this;

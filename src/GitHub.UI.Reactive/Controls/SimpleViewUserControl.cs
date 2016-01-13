@@ -1,11 +1,11 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Input;
-using System.Windows.Navigation;
+using GitHub.ViewModels;
+using NullGuard;
 using ReactiveUI;
 
 namespace GitHub.UI
@@ -35,26 +35,35 @@ namespace GitHub.UI
             });
         }
 
-        public IObservable<object> Done { get { return close; } }
+        public IObservable<object> Done => close;
 
-        public IObservable<object> Cancel { get { return cancel; } }
+        public IObservable<object> Cancel => cancel;
 
-        public IObservable<bool> IsBusy{ get { return isBusy; } }
+        public IObservable<bool> IsBusy => isBusy;
 
         protected void NotifyDone()
         {
+            if (disposed)
+                return;
+
             close.OnNext(null);
             close.OnCompleted();
         }
 
         protected void NotifyCancel()
         {
+            if (disposed)
+                return;
+
             cancel.OnNext(null);
             cancel.OnCompleted();
         }
 
         protected void NotifyIsBusy(bool busy)
         {
+            if (disposed)
+                return;
+
             isBusy.OnNext(busy);
         }
 
@@ -66,6 +75,8 @@ namespace GitHub.UI
                 if (disposed) return;
 
                 close.Dispose();
+                cancel.Dispose();
+                isBusy.Dispose();
                 disposed = true;
             }
         }
@@ -75,6 +86,37 @@ namespace GitHub.UI
             Dispose(true);
             GC.SuppressFinalize(this);
         }
+    }
 
+    public class SimpleViewUserControl<TViewModel, TImplementor> : SimpleViewUserControl, IViewFor<TViewModel>, IView 
+        where TViewModel : class, IViewModel where TImplementor : class
+    {
+        public static readonly DependencyProperty ViewModelProperty = DependencyProperty.Register(
+            "ViewModel", typeof(TViewModel), typeof(TImplementor), new PropertyMetadata(null));
+
+        object IViewFor.ViewModel
+        {
+            get { return ViewModel; }
+            set { ViewModel = (TViewModel)value; }
+        }
+
+        object IView.ViewModel
+        {
+            get { return ViewModel; }
+            set { ViewModel = (TViewModel)value; }
+        }
+
+        public TViewModel ViewModel
+        {
+            [return: AllowNull]
+            get { return (TViewModel)GetValue(ViewModelProperty); }
+            set { SetValue(ViewModelProperty, value); }
+        }
+
+        TViewModel IViewFor<TViewModel>.ViewModel
+        {
+            get { return ViewModel; }
+            set { ViewModel = value; }
+        }
     }
 }
